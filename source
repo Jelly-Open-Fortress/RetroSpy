@@ -1,0 +1,247 @@
+-- made by a really cool guy
+-- @a.l.f.r.e.d.o.s.a.u.s.e on discord
+-- for retrograd
+-- red = tratior
+-- blue = innocent
+-- yellow = detective
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local localPlayer = Players.LocalPlayer
+
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "RadarViewportOverlay"
+screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = true 
+screenGui.Parent = localPlayer:WaitForChild("PlayerGui")
+
+
+local viewportFrame = Instance.new("ViewportFrame")
+viewportFrame.Size = UDim2.new(1, 0, 1, 0)
+viewportFrame.BackgroundTransparency = 1 
+viewportFrame.Parent = screenGui
+
+
+local viewportCamera = Instance.new("Camera")
+viewportCamera.FieldOfView = workspace.CurrentCamera.FieldOfView
+viewportCamera.Parent = viewportFrame
+viewportFrame.CurrentCamera = viewportCamera
+
+local RED_COLOR = BrickColor.new("Bright red")       
+local BLUE_COLOR = BrickColor.new("Bright blue")     
+local YELLOW_COLOR = BrickColor.new("Bright yellow") 
+local GREEN_COLOR = BrickColor.new("Bright green")   
+
+
+local activeReplicas = {}
+local lootModelReplicas = {} 
+local dangerousPlayers = {} 
+local detectivePlayers = {} 
+
+local DETECTIVE_ID_PATTERN = "82328781"
+local OBFUSCATED_NAME = "\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255"
+
+
+local function findLootFolder()
+	local gameFolder = workspace:FindFirstChild("Game")
+	if not gameFolder then return nil end
+	local lootContainer = gameFolder:FindFirstChild("Loot")
+	if not lootContainer then return nil end
+	
+	local dropsFolder = lootContainer:FindFirstChild("drops") or lootContainer:FindFirstChild(OBFUSCATED_NAME)
+	if dropsFolder then return dropsFolder end
+	
+	for _, child in ipairs(lootContainer:GetChildren()) do
+		if child:IsA("Folder") or child:IsA("Model") then
+			return child
+		end
+	end
+	return nil
+end
+
+
+local function scanPlayerForRole(player)
+	local isDetective = false
+	local hasRadar = false
+	
+	local function checkContainer(container)
+		if not container then return end
+		for _, item in ipairs(container:GetDescendants()) do
+			if (item:IsA("SpecialMesh") or item:IsA("FileMesh")) and item.MeshId ~= "" then
+				if string.find(item.MeshId, DETECTIVE_ID_PATTERN) then
+					isDetective = true
+				end
+			end
+			if item.Name == "radartool" then
+				hasRadar = true
+			end
+		end
+	end
+	
+	checkContainer(player:FindFirstChild("Backpack"))
+	checkContainer(player.Character)
+	
+	if isDetective then return "Detective"
+	elseif hasRadar then return "Dangerous"
+	else return "None" end
+end
+
+local function onNewRoundStarted()
+	task.wait(1.5) 
+	dangerousPlayers = {}
+	detectivePlayers = {}
+	
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= localPlayer then
+			local scanResult = scanPlayerForRole(player)
+			if scanResult == "Detective" then detectivePlayers[player.UserId] = true
+			elseif scanResult == "Dangerous" then dangerousPlayers[player.UserId] = true end
+		end
+	end
+end
+
+
+local function setReplicaVisibility(model, visible, brickColor)
+	for _, part in ipairs(model:GetDescendants()) do
+		if part:IsA("BasePart") then
+			if visible then
+				part.Transparency = -3 
+				part.BrickColor = brickColor
+				part.Material = Enum.Material.ForceField 
+			else
+				part.Transparency = 1 
+			end
+			part.CanCollide = false
+			part.Anchored = true
+		end
+	end
+end
+
+local lastAliveCount = 0
+
+RunService.RenderStepped:Connect(function()
+	local mainCamera = workspace.CurrentCamera
+	if mainCamera then
+		viewportCamera.CFrame = mainCamera.CFrame
+		viewportCamera.FieldOfView = mainCamera.FieldOfView
+	end
+	
+	local currentAliveCount = 0
+	
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= localPlayer then
+			local realChar = player.Character
+			local realRoot = realChar and realChar:FindFirstChild("HumanoidRootPart")
+			local humanoid = realChar and realChar:FindFirstChildOfClass("Humanoid")
+			
+			if realChar and realRoot and humanoid and humanoid.Health > 0 then
+				currentAliveCount = currentAliveCount + 1
+			end
+			
+			local replica = activeReplicas[player.UserId]
+			if not replica then
+				replica = Instance.new("Model")
+				replica.Name = player.Name .. "_Replica"
+				replica.Parent = viewportFrame
+				activeReplicas[player.UserId] = replica
+			end
+			
+			if realChar and realRoot and humanoid and humanoid.Health > 0 then
+				local liveCheck = scanPlayerForRole(player)
+				if liveCheck == "Dangerous" then dangerousPlayers[player.UserId] = true end
+				
+				local targetColor = BLUE_COLOR 
+				if detectivePlayers[player.UserId] then targetColor = YELLOW_COLOR 
+				elseif dangerousPlayers[player.UserId] then targetColor = RED_COLOR end
+				
+				for _, realPart in ipairs(realChar:GetChildren()) do
+					if realPart:IsA("BasePart") then
+						local repPart = replica:FindFirstChild(realPart.Name)
+						if not repPart then
+							repPart = realPart:Clone()
+							repPart:ClearAllChildren() 
+							repPart.Parent = replica
+						end
+						repPart.CFrame = realPart.CFrame
+					end
+				end
+				setReplicaVisibility(replica, true, targetColor)
+			else
+				setReplicaVisibility(replica, false)
+				dangerousPlayers[player.UserId] = nil
+				detectivePlayers[player.UserId] = nil
+			end
+		end
+	end
+
+
+	local lootFolder = findLootFolder()
+	local currentLootInWorkspace = {}
+	
+	if lootFolder then
+
+		for _, weaponWrapper in ipairs(lootFolder:GetChildren()) do
+			
+
+			local realMainHitbox = weaponWrapper:FindFirstChild("_main", true)
+			
+			if realMainHitbox and realMainHitbox:IsA("BasePart") then
+		
+				currentLootInWorkspace[weaponWrapper] = true
+				
+				local lootReplica = lootModelReplicas[weaponWrapper]
+		
+				if not lootReplica then
+					lootReplica = weaponWrapper:Clone()
+					
+			
+					for _, item in ipairs(lootReplica:GetDescendants()) do
+						if not item:IsA("BasePart") and not item:IsA("SpecialMesh") then
+							item:Destroy()
+						end
+					end
+					
+					lootReplica.Parent = viewportFrame
+					lootModelReplicas[weaponWrapper] = lootReplica
+				end
+				
+		
+				for _, realPart in ipairs(weaponWrapper:GetDescendants()) do
+					if realPart:IsA("BasePart") then
+				
+						local repPart = lootReplica:FindFirstChild(realPart.Name, true)
+						if repPart then
+							repPart.CFrame = realPart.CFrame
+						end
+					end
+				end
+				
+				setReplicaVisibility(lootReplica, true, GREEN_COLOR)
+			end
+		end
+	end
+	
+	for realWeapon, replica in pairs(lootModelReplicas) do
+		if not currentLootInWorkspace[realWeapon] or not realWeapon.Parent then
+			replica:Destroy()
+			lootModelReplicas[realWeapon] = nil
+		end
+	end
+
+	if lastAliveCount <= 1 and currentAliveCount > 1 then
+		onNewRoundStarted()
+	end
+	lastAliveCount = currentAliveCount
+	
+	for userId, replica in pairs(activeReplicas) do
+		if not Players:GetPlayerByUserId(userId) then
+			replica:Destroy()
+			activeReplicas[userId] = nil
+			dangerousPlayers[userId] = nil
+			detectivePlayers[userId] = nil
+		end
+	end
+end)
