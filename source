@@ -1,49 +1,44 @@
--- made by a really cool guy
--- @a.l.f.r.e.d.o.s.a.u.s.e on discord
--- for retrograd
--- red = tratior
--- blue = innocent
--- yellow = detective
-
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local localPlayer = Players.LocalPlayer
 
-
+-- 1. Create the Full-Screen UI Layer
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "RadarViewportOverlay"
 screenGui.ResetOnSpawn = false
 screenGui.IgnoreGuiInset = true 
 screenGui.Parent = localPlayer:WaitForChild("PlayerGui")
 
-
+-- 2. Create the Transparent Viewport
 local viewportFrame = Instance.new("ViewportFrame")
 viewportFrame.Size = UDim2.new(1, 0, 1, 0)
 viewportFrame.BackgroundTransparency = 1 
 viewportFrame.Parent = screenGui
 
-
+-- 3. Setup the Dedicated Viewport Camera
 local viewportCamera = Instance.new("Camera")
 viewportCamera.FieldOfView = workspace.CurrentCamera.FieldOfView
 viewportCamera.Parent = viewportFrame
 viewportFrame.CurrentCamera = viewportCamera
 
+-- Configuration Colors
 local RED_COLOR = BrickColor.new("Bright red")       
 local BLUE_COLOR = BrickColor.new("Bright blue")     
 local YELLOW_COLOR = BrickColor.new("Bright yellow") 
 local GREEN_COLOR = BrickColor.new("Bright green")   
 
-
+-- Memory Tracking Arrays
 local activeReplicas = {}
-local lootModelReplicas = {} 
+local lootHitboxReplicas = {} -- Tracks ONLY the single _main parts
 local dangerousPlayers = {} 
 local detectivePlayers = {} 
 
+-- Target Identifiers
 local DETECTIVE_ID_PATTERN = "82328781"
 local OBFUSCATED_NAME = "\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255"
 
-
+-- DYNAMIC LOOT FOLDER FINDER
 local function findLootFolder()
 	local gameFolder = workspace:FindFirstChild("Game")
 	if not gameFolder then return nil end
@@ -61,7 +56,7 @@ local function findLootFolder()
 	return nil
 end
 
-
+-- Role Scanner
 local function scanPlayerForRole(player)
 	local isDetective = false
 	local hasRadar = false
@@ -88,6 +83,7 @@ local function scanPlayerForRole(player)
 	else return "None" end
 end
 
+-- Round Transition Handler
 local function onNewRoundStarted()
 	task.wait(1.5) 
 	dangerousPlayers = {}
@@ -102,25 +98,33 @@ local function onNewRoundStarted()
 	end
 end
 
+-- Fast Visibility Applier
+local function setPartProperties(part, visible, brickColor)
+	if visible then
+		part.Transparency = -3 
+		part.BrickColor = brickColor
+		part.Material = Enum.Material.ForceField 
+	else
+		part.Transparency = 1 
+	end
+	part.CanCollide = false
+	part.Anchored = true
+end
 
 local function setReplicaVisibility(model, visible, brickColor)
 	for _, part in ipairs(model:GetDescendants()) do
 		if part:IsA("BasePart") then
-			if visible then
-				part.Transparency = -3 
-				part.BrickColor = brickColor
-				part.Material = Enum.Material.ForceField 
-			else
-				part.Transparency = 1 
-			end
-			part.CanCollide = false
-			part.Anchored = true
+			setPartProperties(part, visible, brickColor)
 		end
 	end
 end
 
+-- Round Tracking Variables
 local lastAliveCount = 0
 
+----------------------------------------
+-- LIGHTWEIGHT INTEGRATED RENDER LOOP
+----------------------------------------
 RunService.RenderStepped:Connect(function()
 	local mainCamera = workspace.CurrentCamera
 	if mainCamera then
@@ -130,7 +134,7 @@ RunService.RenderStepped:Connect(function()
 	
 	local currentAliveCount = 0
 	
-
+	-- PHASE 1: PROCESS PLAYERS
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player ~= localPlayer then
 			local realChar = player.Character
@@ -177,60 +181,44 @@ RunService.RenderStepped:Connect(function()
 		end
 	end
 
-
+	-- PHASE 2: HYPER-OPTIMIZED HITBOX SCANNING (CLONE ONLY _MAIN)
 	local lootFolder = findLootFolder()
 	local currentLootInWorkspace = {}
 	
 	if lootFolder then
-
 		for _, weaponWrapper in ipairs(lootFolder:GetChildren()) do
-			
-
+			-- Find the absolute hitbox tracking node recursively
 			local realMainHitbox = weaponWrapper:FindFirstChild("_main", true)
 			
 			if realMainHitbox and realMainHitbox:IsA("BasePart") then
-		
+				-- Index using the wrapper container to know when it gets picked up
 				currentLootInWorkspace[weaponWrapper] = true
 				
-				local lootReplica = lootModelReplicas[weaponWrapper]
-		
-				if not lootReplica then
-					lootReplica = weaponWrapper:Clone()
-					
-			
-					for _, item in ipairs(lootReplica:GetDescendants()) do
-						if not item:IsA("BasePart") and not item:IsA("SpecialMesh") then
-							item:Destroy()
-						end
-					end
-					
-					lootReplica.Parent = viewportFrame
-					lootModelReplicas[weaponWrapper] = lootReplica
+				local repHitbox = lootHitboxReplicas[weaponWrapper]
+				-- Clone ONLY the isolated _main box part, ignoring all gun details
+				if not repHitbox then
+					repHitbox = realMainHitbox:Clone()
+					repHitbox:ClearAllChildren() -- Strip scaling values, meshes, or welds
+					setPartProperties(repHitbox, true, GREEN_COLOR)
+					repHitbox.Parent = viewportFrame
+					lootHitboxReplicas[weaponWrapper] = repHitbox
 				end
 				
-		
-				for _, realPart in ipairs(weaponWrapper:GetDescendants()) do
-					if realPart:IsA("BasePart") then
-				
-						local repPart = lootReplica:FindFirstChild(realPart.Name, true)
-						if repPart then
-							repPart.CFrame = realPart.CFrame
-						end
-					end
-				end
-				
-				setReplicaVisibility(lootReplica, true, GREEN_COLOR)
+				-- Directly position just this singular box part
+				repHitbox.CFrame = realMainHitbox.CFrame
 			end
 		end
 	end
 	
-	for realWeapon, replica in pairs(lootModelReplicas) do
+	-- CLEAR HITBOX GHOSTS IMMEDIATELY WHEN THE WEAPON NO LONGER EXISTS
+	for realWeapon, repHitbox in pairs(lootHitboxReplicas) do
 		if not currentLootInWorkspace[realWeapon] or not realWeapon.Parent then
-			replica:Destroy()
-			lootModelReplicas[realWeapon] = nil
+			repHitbox:Destroy()
+			lootHitboxReplicas[realWeapon] = nil
 		end
 	end
-
+	
+	-- PHASE 3: ROUND MAINTENANCE
 	if lastAliveCount <= 1 and currentAliveCount > 1 then
 		onNewRoundStarted()
 	end
