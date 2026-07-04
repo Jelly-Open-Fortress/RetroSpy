@@ -1,7 +1,25 @@
+-- < and > change materials
+-- ; and ' change transparency
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 
 local localPlayer = Players.LocalPlayer
+
+-- Material and Transparency Settings
+local MATERIALS = {
+	Enum.Material.Plastic,
+	Enum.Material.Metal,
+	Enum.Material.Glass,
+	Enum.Material.Wood,
+	Enum.Material.Neon,
+	Enum.Material.ForceField,
+	Enum.Material.Marble,
+	Enum.Material.Brick
+}
+
+local currentMaterialIndex = 6 -- Start with ForceField
+local currentTransparency = 0.5 -- Start at 0.5
 
 -- 1. Create the Full-Screen UI Layer
 local screenGui = Instance.new("ScreenGui")
@@ -111,12 +129,55 @@ task.spawn(function()
 	end
 end)
 
+-- Keyboard Input Handler
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	
+	local keyCode = input.KeyCode
+	
+	-- Material cycling
+	if keyCode == Enum.KeyCode.Comma then -- <
+		currentMaterialIndex = currentMaterialIndex - 1
+		if currentMaterialIndex < 1 then
+			currentMaterialIndex = #MATERIALS
+		end
+		print("Material: " .. tostring(MATERIALS[currentMaterialIndex]))
+	elseif keyCode == Enum.KeyCode.Period then -- >
+		currentMaterialIndex = currentMaterialIndex + 1
+		if currentMaterialIndex > #MATERIALS then
+			currentMaterialIndex = 1
+		end
+		print("Material: " .. tostring(MATERIALS[currentMaterialIndex]))
+	end
+	
+	-- Transparency cycling
+	if keyCode == Enum.KeyCode.Semicolon then -- ;
+		currentTransparency = currentTransparency - 0.1
+		if currentTransparency < -2 then
+			currentTransparency = -2
+		end
+		print("Transparency: " .. tostring(math.round(currentTransparency * 10) / 10))
+	elseif keyCode == Enum.KeyCode.Quote then -- '
+		currentTransparency = currentTransparency + 0.1
+		if currentTransparency > 1 then
+			currentTransparency = 1
+		end
+		print("Transparency: " .. tostring(math.round(currentTransparency * 10) / 10))
+	end
+end)
+
 -- Fast Visibility Applier
 local function setPartProperties(part, visible, brickColor)
 	if visible then
-		part.Transparency = -3 
 		part.BrickColor = brickColor
-		part.Material = Enum.Material.ForceField 
+		part.Material = MATERIALS[currentMaterialIndex]
+		
+		-- Apply transparency with ForceField boost
+		local finalTransparency = currentTransparency
+		if MATERIALS[currentMaterialIndex] == Enum.Material.ForceField then
+			finalTransparency = currentTransparency - 2
+		end
+		part.Transparency = finalTransparency
 	else
 		part.Transparency = 1 
 	end
@@ -204,10 +265,11 @@ RunService.RenderStepped:Connect(function()
 				if not repHitbox then
 					repHitbox = realMainHitbox:Clone()
 					repHitbox:ClearAllChildren() -- Strip scaling values, meshes, or welds
-					setPartProperties(repHitbox, true, GREEN_COLOR)
 					repHitbox.Parent = viewportFrame
 					lootHitboxReplicas[weaponWrapper] = repHitbox
 				end
+				-- Apply fresh properties each frame for loot
+				setPartProperties(repHitbox, true, GREEN_COLOR)
 				
 				-- Directly position just this singular box part
 				repHitbox.CFrame = realMainHitbox.CFrame
