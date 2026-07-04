@@ -19,6 +19,9 @@ local MATERIALS = {
 local currentMaterialIndex = 6 -- Start with ForceField
 local currentTransparency = 0.5 -- Start at 0.5
 
+-- Health GUI Settings
+local healthGuiEnabled = true
+
 -- 1. Create the Full-Screen UI Layer
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "RadarViewportOverlay"
@@ -134,6 +137,30 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	
 	local keyCode = input.KeyCode
 	
+	-- Health GUI Toggle
+	if keyCode == Enum.KeyCode.End then
+		healthGuiEnabled = not healthGuiEnabled
+		print("Health GUI: " .. (healthGuiEnabled and "ENABLED" or "DISABLED"))
+		
+		if not healthGuiEnabled then
+			-- If disabling, remove all existing health GUIs
+			for _, player in ipairs(Players:GetPlayers()) do
+				if player ~= localPlayer and player.Character then
+					local billboard = player.Character:FindFirstChild("HealthBillboard")
+					if billboard then billboard:Destroy() end
+				end
+			end
+		else
+			-- If enabling, create health GUIs for all current players
+			for _, player in ipairs(Players:GetPlayers()) do
+				if player ~= localPlayer and player.Character then
+					task.spawn(createHealthGui, player.Character)
+				end
+			end
+		end
+		return
+	end
+	
 	-- Material cycling
 	if keyCode == Enum.KeyCode.Comma then -- <
 		currentMaterialIndex = currentMaterialIndex - 1
@@ -190,6 +217,101 @@ local function setReplicaVisibility(model, visible, brickColor)
 			setPartProperties(part, visible, brickColor)
 		end
 	end
+end
+
+-- Health GUI Colors and Functions
+local BACKGROUND_COLOR = Color3.fromRGB(40, 40, 40)
+local TEXT_COLOR = Color3.fromRGB(255, 255, 255)
+local OUTLINE_COLOR = Color3.fromRGB(0, 0, 0)
+
+local function getHealthColor(healthRatio)
+	if healthRatio > 0.5 then
+		local alpha = (healthRatio - 0.5) / 0.5
+		return Color3.fromRGB(255, 255, 0):Lerp(Color3.fromRGB(0, 255, 0), alpha)
+	elseif healthRatio > 0.2 then
+		local alpha = (healthRatio - 0.2) / 0.3
+		return Color3.fromRGB(255, 0, 0):Lerp(Color3.fromRGB(255, 255, 0), alpha)
+	else
+		return Color3.fromRGB(255, 0, 0)
+	end
+end
+
+local function createHealthGui(character)
+	local player = Players:GetPlayerFromCharacter(character)
+	if player == localPlayer then return end
+	if character:FindFirstChild("HealthBillboard") then return end
+	
+	local humanoid = character:WaitForChild("Humanoid", 5)
+	if not humanoid then return end
+	
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "HealthBillboard"
+	billboard.Size = UDim2.new(1.5, 0, 3.5, 0)
+	billboard.StudsOffset = Vector3.new(-2.5, 0.5, 0)
+	billboard.AlwaysOnTop = true
+	billboard.ResetOnSpawn = false
+	billboard.Adornee = character:WaitForChild("HumanoidRootPart")
+	billboard.Parent = character
+	
+	local textLabel = Instance.new("TextLabel")
+	textLabel.Name = "PercentageText"
+	textLabel.Size = UDim2.new(1, 0, 0.2, 0)
+	textLabel.Position = UDim2.new(0, 0, 0, 0)
+	textLabel.BackgroundTransparency = 1
+	textLabel.TextColor3 = TEXT_COLOR
+	textLabel.TextStrokeColor3 = OUTLINE_COLOR
+	textLabel.TextStrokeTransparency = 0
+	textLabel.TextScaled = true
+	textLabel.RichText = true
+	textLabel.Font = Enum.Font.GothamBold
+	textLabel.Parent = billboard
+	
+	local barBackground = Instance.new("Frame")
+	barBackground.Name = "BarBackground"
+	barBackground.Size = UDim2.new(0.25, 0, 0.75, 0)
+	barBackground.Position = UDim2.new(0.375, 0, 0.25, 0)
+	barBackground.BackgroundColor3 = BACKGROUND_COLOR
+	barBackground.BorderSizePixel = 0
+	barBackground.Parent = billboard
+	
+	local healthFill = Instance.new("Frame")
+	healthFill.Name = "HealthFill"
+	healthFill.Size = UDim2.new(1, 0, 1, 0)
+	healthFill.Position = UDim2.new(0, 0, 0, 0)
+	healthFill.BorderSizePixel = 0
+	healthFill.Parent = barBackground
+	
+	local connection
+	connection = RunService.RenderStepped:Connect(function()
+		if not character:IsDescendantOf(workspace) or humanoid.Health <= 0 then
+			billboard:Destroy()
+			connection:Disconnect()
+			return
+		end
+		local healthRatio = math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1)
+		local healthPercent = math.floor(healthRatio * 100)
+		healthFill.Size = UDim2.new(1, 0, healthRatio, 0)
+		healthFill.Position = UDim2.new(0, 0, 1 - healthRatio, 0)
+		healthFill.BackgroundColor3 = getHealthColor(healthRatio)
+		textLabel.Text = string.format("<b>%d%%</b>", healthPercent)
+	end)
+end
+
+local function onPlayerAdded(player)
+	player.CharacterAdded:Connect(function(character)
+		if healthGuiEnabled then
+			createHealthGui(character)
+		end
+	end)
+	if player.Character and healthGuiEnabled then
+		task.spawn(createHealthGui, player.Character)
+	end
+end
+
+-- Initialize health GUI for all current players
+Players.PlayerAdded:Connect(onPlayerAdded)
+for _, player in ipairs(Players:GetPlayers()) do
+	onPlayerAdded(player)
 end
 
 ----------------------------------------
