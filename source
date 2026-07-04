@@ -83,20 +83,33 @@ local function scanPlayerForRole(player)
 	else return "None" end
 end
 
--- Round Transition Handler
-local function onNewRoundStarted()
-	task.wait(1.5) 
-	dangerousPlayers = {}
-	detectivePlayers = {}
-	
+-- Simple 2-Second Role Updater
+local function updatePlayerRoles()
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player ~= localPlayer then
 			local scanResult = scanPlayerForRole(player)
-			if scanResult == "Detective" then detectivePlayers[player.UserId] = true
-			elseif scanResult == "Dangerous" then dangerousPlayers[player.UserId] = true end
+			if scanResult == "Detective" then 
+				detectivePlayers[player.UserId] = true
+				dangerousPlayers[player.UserId] = nil
+			elseif scanResult == "Dangerous" then 
+				dangerousPlayers[player.UserId] = true
+				detectivePlayers[player.UserId] = nil
+			else
+				-- Neutral - clear both flags
+				detectivePlayers[player.UserId] = nil
+				dangerousPlayers[player.UserId] = nil
+			end
 		end
 	end
 end
+
+-- Start the role update loop
+task.spawn(function()
+	while true do
+		task.wait(2)
+		updatePlayerRoles()
+	end
+end)
 
 -- Fast Visibility Applier
 local function setPartProperties(part, visible, brickColor)
@@ -119,9 +132,6 @@ local function setReplicaVisibility(model, visible, brickColor)
 	end
 end
 
--- Round Tracking Variables
-local lastAliveCount = 0
-
 ----------------------------------------
 -- LIGHTWEIGHT INTEGRATED RENDER LOOP
 ----------------------------------------
@@ -132,18 +142,10 @@ RunService.RenderStepped:Connect(function()
 		viewportCamera.FieldOfView = mainCamera.FieldOfView
 	end
 	
-	local currentAliveCount = 0
-	
 	-- PHASE 1: PROCESS PLAYERS
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player ~= localPlayer then
 			local realChar = player.Character
-			local realRoot = realChar and realChar:FindFirstChild("HumanoidRootPart")
-			local humanoid = realChar and realChar:FindFirstChildOfClass("Humanoid")
-			
-			if realChar and realRoot and humanoid and humanoid.Health > 0 then
-				currentAliveCount = currentAliveCount + 1
-			end
 			
 			local replica = activeReplicas[player.UserId]
 			if not replica then
@@ -153,30 +155,33 @@ RunService.RenderStepped:Connect(function()
 				activeReplicas[player.UserId] = replica
 			end
 			
-			if realChar and realRoot and humanoid and humanoid.Health > 0 then
-				local liveCheck = scanPlayerForRole(player)
-				if liveCheck == "Dangerous" then dangerousPlayers[player.UserId] = true end
+			if realChar then
+				local realRoot = realChar:FindFirstChild("HumanoidRootPart")
+				local humanoid = realChar:FindFirstChildOfClass("Humanoid")
 				
-				local targetColor = BLUE_COLOR 
-				if detectivePlayers[player.UserId] then targetColor = YELLOW_COLOR 
-				elseif dangerousPlayers[player.UserId] then targetColor = RED_COLOR end
-				
-				for _, realPart in ipairs(realChar:GetChildren()) do
-					if realPart:IsA("BasePart") then
-						local repPart = replica:FindFirstChild(realPart.Name)
-						if not repPart then
-							repPart = realPart:Clone()
-							repPart:ClearAllChildren() 
-							repPart.Parent = replica
+				if realRoot and humanoid and humanoid.Health > 0 then
+					local targetColor = BLUE_COLOR 
+					if detectivePlayers[player.UserId] then targetColor = YELLOW_COLOR 
+					elseif dangerousPlayers[player.UserId] then targetColor = RED_COLOR end
+					
+					for _, realPart in ipairs(realChar:GetChildren()) do
+						if realPart:IsA("BasePart") then
+							local repPart = replica:FindFirstChild(realPart.Name)
+							if not repPart then
+								repPart = realPart:Clone()
+								repPart:ClearAllChildren() 
+								repPart.Parent = replica
+							end
+							repPart.CFrame = realPart.CFrame
 						end
-						repPart.CFrame = realPart.CFrame
 					end
+					setReplicaVisibility(replica, true, targetColor)
+				else
+					setReplicaVisibility(replica, false)
 				end
-				setReplicaVisibility(replica, true, targetColor)
 			else
+				-- Character doesn't exist, hide the ghost
 				setReplicaVisibility(replica, false)
-				dangerousPlayers[player.UserId] = nil
-				detectivePlayers[player.UserId] = nil
 			end
 		end
 	end
@@ -218,12 +223,7 @@ RunService.RenderStepped:Connect(function()
 		end
 	end
 	
-	-- PHASE 3: ROUND MAINTENANCE
-	if lastAliveCount <= 1 and currentAliveCount > 1 then
-		onNewRoundStarted()
-	end
-	lastAliveCount = currentAliveCount
-	
+	-- Clean up replicas for players who left the server
 	for userId, replica in pairs(activeReplicas) do
 		if not Players:GetPlayerByUserId(userId) then
 			replica:Destroy()
