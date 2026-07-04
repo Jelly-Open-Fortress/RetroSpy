@@ -1,5 +1,3 @@
--- < and > change materials
--- ; and ' change transparency
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -50,7 +48,8 @@ local GREEN_COLOR = BrickColor.new("Bright green")
 local activeReplicas = {}
 local lootHitboxReplicas = {} -- Tracks ONLY the single _main parts
 local dangerousPlayers = {} 
-local detectivePlayers = {} 
+local detectivePlayers = {}
+local playerAliveStates = {} -- Track if player was alive last frame 
 
 -- Target Identifiers
 local DETECTIVE_ID_PATTERN = "82328781"
@@ -207,42 +206,55 @@ RunService.RenderStepped:Connect(function()
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player ~= localPlayer then
 			local realChar = player.Character
+			local isAlive = false
 			
+			-- Check if player is actually alive
+			if realChar then
+				local realRoot = realChar:FindFirstChild("HumanoidRootPart")
+				local humanoid = realChar:FindFirstChildOfClass("Humanoid")
+				if realRoot and humanoid and humanoid.Health > 0 then
+					isAlive = true
+				end
+			end
+			
+			-- Get or create replica
 			local replica = activeReplicas[player.UserId]
 			if not replica then
 				replica = Instance.new("Model")
 				replica.Name = player.Name .. "_Replica"
 				replica.Parent = viewportFrame
 				activeReplicas[player.UserId] = replica
+				playerAliveStates[player.UserId] = false
 			end
 			
-			if realChar then
-				local realRoot = realChar:FindFirstChild("HumanoidRootPart")
-				local humanoid = realChar:FindFirstChildOfClass("Humanoid")
-				
-				if realRoot and humanoid and humanoid.Health > 0 then
-					local targetColor = BLUE_COLOR 
-					if detectivePlayers[player.UserId] then targetColor = YELLOW_COLOR 
-					elseif dangerousPlayers[player.UserId] then targetColor = RED_COLOR end
-					
-					for _, realPart in ipairs(realChar:GetChildren()) do
-						if realPart:IsA("BasePart") then
-							local repPart = replica:FindFirstChild(realPart.Name)
-							if not repPart then
-								repPart = realPart:Clone()
-								repPart:ClearAllChildren() 
-								repPart.Parent = replica
-							end
-							repPart.CFrame = realPart.CFrame
-						end
-					end
-					setReplicaVisibility(replica, true, targetColor)
-				else
-					setReplicaVisibility(replica, false)
-				end
-			else
-				-- Character doesn't exist, hide the ghost
+			-- Handle state transitions
+			local wasAlive = playerAliveStates[player.UserId]
+			playerAliveStates[player.UserId] = isAlive
+			
+			-- If transitioned from alive to dead, clear replica
+			if wasAlive and not isAlive then
+				replica:ClearAllChildren()
 				setReplicaVisibility(replica, false)
+			end
+			
+			-- If currently alive, update ghost
+			if isAlive then
+				local targetColor = BLUE_COLOR 
+				if detectivePlayers[player.UserId] then targetColor = YELLOW_COLOR 
+				elseif dangerousPlayers[player.UserId] then targetColor = RED_COLOR end
+				
+				for _, realPart in ipairs(realChar:GetChildren()) do
+					if realPart:IsA("BasePart") then
+						local repPart = replica:FindFirstChild(realPart.Name)
+						if not repPart then
+							repPart = realPart:Clone()
+							repPart:ClearAllChildren() 
+							repPart.Parent = replica
+						end
+						repPart.CFrame = realPart.CFrame
+					end
+				end
+				setReplicaVisibility(replica, true, targetColor)
 			end
 		end
 	end
@@ -292,6 +304,7 @@ RunService.RenderStepped:Connect(function()
 			activeReplicas[userId] = nil
 			dangerousPlayers[userId] = nil
 			detectivePlayers[userId] = nil
+			playerAliveStates[userId] = nil
 		end
 	end
 end)
